@@ -1,0 +1,3 @@
+run this command to quickly tear down and build:
+
+helm uninstall eosio && kubectl delete pvc pvc-eosio-local-nodeos-0 && ./eosio/scripts/helm-dependency-update.sh && helm upgrade --install eosio eosio -f eosio/local.yaml -f eosio/nodeos_config.yaml

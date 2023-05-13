@@ -1,0 +1,133 @@
+{{- $componentName := "nodeos" -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "common.nodeosName" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ $componentName }}
+    {{- if .Values.global.expires }}
+    expires: {{ .Values.global.expiry }}
+    {{- end }}
+    app: {{ $componentName }}
+spec:
+  serviceName: {{ include "common.nodeosName" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: {{ $componentName }}
+      app: {{ $componentName }}
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+        namespace: {{ .Values.global.namespace }}
+        labels:
+          {{- include "common.selectorLabels" . | nindent 10 }}
+          app.kubernetes.io/component: {{ $componentName }}
+      spec:
+        storageClassName: {{ include "common.storageClass" . }}
+        resources:
+          requests:
+            storage: {{ .Values.pvSize | default "100Gi" }}
+        accessModes:
+          - ReadWriteOnce
+  template:
+    metadata:
+      labels:
+        {{- include "common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: {{ $componentName }}
+        app: {{ $componentName }}
+      annotations:
+        consul.hashicorp.com/connect-inject: "false"
+    spec:
+      serviceAccountName: {{ include "common.nodeosName" . }}
+      containers:
+      - name: {{ include "common.nodeosName" . }}
+        image: {{ include "common.nodeosContainer" . }}
+        imagePullPolicy: {{ .Values.global.containers.pullPolicy }}
+        env:
+        - name: BUILD_TAG
+          value: bp-{{ .Values.global.instance }}
+        command:
+          - "/bin/sh"
+          - "-ec"
+          - |
+            "apt-get update && apt-get install -y wget zstd && \
+            wget https://snapshots.eosnation.io/eos-v6/latest -O /eos.data/snapshot.bin.zst && \
+            zstd -d /eos.data/snapshot.bin.zst && \
+            rm -f /eos.data/snapshot.bin.zst && \
+            {{ include "nodeos.command" . }}"
+        readinessProbe:
+          httpGet:
+            path: /v1/chain/get_info
+            port: http-api
+          initialDelaySeconds: 5
+          periodSeconds: 3
+        livenessProbe:
+          httpGet:
+            path: /v1/chain/get_info
+            port: http-api
+          initialDelaySeconds: 5
+          periodSeconds: 3
+# Need to test on an updated cluster. This was introduced in 1.16.
+#        startupProbe:
+#          httpGet:
+#            path: /v1/chain/get_info
+#            port: http-api
+#          failureThreshold: 30
+#          periodSeconds: 10
+        ports:
+        - name: http-api
+          containerPort: 8080
+        - name: tcp-peer
+          containerPort: 8081
+        - name: http-hist
+          containerPort: 8082
+        {{- if ne .Values.global.namespace "local" }}
+        resources:
+          requests:
+            cpu: 3
+            memory: '12G'
+          limits:
+            cpu: 3
+            memory: '12G'
+        {{- end }}
+        volumeMounts:
+        - name: genesis
+          mountPath: /root/.local/share/eosio/nodeos/config
+          readOnly: true
+        - name: logging
+          mountPath: /root/.local/share/eosio/nodeos/config/log
+        - mountPath: /root/.local/share/eosio/nodeos/config/protocol_features
+          name: protocol-features
+        - name: pvc
+          mountPath: /mnt/dev/data
+      volumes:
+      - name: genesis
+        configMap:
+          name: {{ include "common.nodeosName" . }}
+      - name: logging
+        configMap:
+          name: {{ include "common.nodeosName" . }}-logging
+      - name: protocol-features
+        emptyDir: {}
+      terminationGracePeriodSeconds: 120
+      {{- if .Values.global.containers.pullSecrets }}
+      imagePullSecrets:
+        - name: {{ .Values.global.containers.pullSecrets }}
+      {{- end }}
+      {{- if .Values.global.nodeSelector }}
+      nodeSelector:
+        {{- if ne .Values.global.cloudProvider "gcp" }}
+        node-role: {{ .Values.global.nodeSelector }}
+        {{- else }}
+        cloud.google.com/gke-nodepool: {{ .Values.global.nodeSelector }}
+      tolerations:
+        - key: nodepool
+          operator: Equal
+          value: {{ .Values.global.nodeSelector }}
+          effect: NoSchedule
+        {{- end }}
+      {{- end }}

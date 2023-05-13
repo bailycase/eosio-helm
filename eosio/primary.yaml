@@ -1,0 +1,25 @@
+namespace: &namespace_anchor primary
+
+global:
+  containers:
+    dockerhub: "eosio"
+    eosio:
+      containerRepo: dockerhub
+      containerTag: master
+    initContainer:
+      containerRepo: dockerhub
+      containerTag: master
+    location: us-west-2
+    pullPolicy: IfNotPresent
+    nodeos:
+      testAccountsJson: accounts.json
+  instance: *namespace_anchor
+  branch: master
+  namespace: *namespace_anchor
+  monitoring:
+    namespace: monitoring
+    enabled: false
+  localLB: true
+  pvsEnabled: true
+  nodeSelector: heavy-node
+  cloudProvider: aws
